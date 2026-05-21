@@ -22,6 +22,7 @@
  */
 
 const { tokenize } = require('../utils/textCleaner');
+const { extractSkills, compareSkills } = require('../utils/skillExtractor');
 
 /**
  * Calculate Term Frequency (TF) for each word in a document.
@@ -104,70 +105,121 @@ const calculateTFIDF = (tokens, idf) => {
 };
 
 /**
- * Extract the top N keywords from text based on TF-IDF scores.
+ * Extract the top N keywords from text.
+ * Prioritizes actual skills first, then supplements with general TF-IDF words.
+ *
  * @param {string} text - The document text
  * @param {string} referenceText - A second document (for IDF calculation)
- * @param {number} topN - How many keywords to return (default: 20)
+ * @param {number} topN - How many keywords to return (default: 25)
  * @returns {string[]} Top keywords sorted by importance
  */
 const extractKeywords = (text, referenceText = '', topN = 25) => {
-  const tokens1 = tokenize(text);
-  
-  if (tokens1.length === 0) return [];
+  // 1. Extract explicit technical & soft skills from SKILLS_DICTIONARY first
+  const skills = extractSkills(text);
+  let keywords = [...skills];
 
-  // If no reference text, just use TF (word frequency)
+  // If we already have enough skills to fill topN, return them
+  if (keywords.length >= topN) {
+    return keywords.slice(0, topN);
+  }
+
+  // 2. Otherwise, tokenize and calculate TF/TF-IDF for supplemental general words
+  const tokens1 = tokenize(text);
+  if (tokens1.length === 0) return keywords;
+
+  let sortedGeneralWords = [];
   if (!referenceText || referenceText === text) {
     const tf = calculateTF(tokens1);
-    return Object.entries(tf)
+    sortedGeneralWords = Object.entries(tf)
       .sort((a, b) => b[1] - a[1])
-      .slice(0, topN)
+      .map(([word]) => word);
+  } else {
+    const tokens2 = tokenize(referenceText);
+    const idf = calculateIDF([tokens1, tokens2]);
+    const tfidf = calculateTFIDF(tokens1, idf);
+    sortedGeneralWords = Object.entries(tfidf)
+      .sort((a, b) => b[1] - a[1])
       .map(([word]) => word);
   }
 
-  const tokens2 = tokenize(referenceText);
-  const idf = calculateIDF([tokens1, tokens2]);
-  const tfidf = calculateTFIDF(tokens1, idf);
+  // 3. Add non-duplicate general words until we reach topN
+  const currentSet = new Set(keywords.map(kw => kw.toLowerCase()));
+  for (const word of sortedGeneralWords) {
+    if (keywords.length >= topN) break;
+    if (!currentSet.has(word.toLowerCase())) {
+      keywords.push(word);
+    }
+  }
 
-  const sorted = Object.entries(tfidf)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, topN)
-    .map(([word]) => word);
-
-  return sorted;
+  return keywords;
 };
 
 /**
  * Calculate keyword match score between resume and job description.
+ * Highly robust logic combining structured skills comparison and general keywords.
+ *
  * @param {string} resumeText - Cleaned resume text
  * @param {string} jdText - Cleaned job description text
  * @returns {number} Score from 0 to 100
  */
 const calculateKeywordScore = (resumeText, jdText) => {
+  const jdSkills = extractSkills(jdText);
+  const resumeSkills = extractSkills(resumeText);
+
+  // If the JD contains explicit skills from our dictionary, use hybrid skill-scoring
+  if (jdSkills.length > 0) {
+    const { matched } = compareSkills(resumeSkills, jdSkills);
+    const skillMatchScore = (matched.length / jdSkills.length) * 100;
+
+    // Supplement with TF-IDF keyword overlap to reward matching other context in the JD
+    const jdKeywords = extractKeywords(jdText, resumeText, 30);
+    const skillSet = new Set(jdSkills.map(s => s.toLowerCase()));
+    
+    // Filter down to general (non-skill) words
+    const generalKeywords = jdKeywords.filter(kw => !skillSet.has(kw.toLowerCase()));
+    
+    let generalMatchScore = 0;
+    if (generalKeywords.length > 0) {
+      const resumeTokens = new Set(tokenize(resumeText).map(t => t.toLowerCase()));
+      let generalMatchCount = 0;
+      for (const kw of generalKeywords) {
+        if (resumeTokens.has(kw.toLowerCase())) {
+          generalMatchCount++;
+        }
+      }
+      generalMatchScore = (generalMatchCount / generalKeywords.length) * 100;
+    } else {
+      generalMatchScore = skillMatchScore; // Fallback if no general keywords
+    }
+
+    // Weighted match: 85% Core Skills + 15% General Vocabulary Context
+    const finalScore = (0.85 * skillMatchScore) + (0.15 * generalMatchScore);
+    return Math.min(100, Math.max(0, Math.round(finalScore)));
+  }
+
+  // Pure fallback: standard TF-IDF unigram matching if no skills were detected in the JD
   const jdKeywords = extractKeywords(jdText, resumeText, 30);
-  
   if (jdKeywords.length === 0) return 0;
 
-  const resumeTokens = new Set(tokenize(resumeText));
+  const resumeTokens = new Set(tokenize(resumeText).map(t => t.toLowerCase()));
   let matchCount = 0;
 
   for (const keyword of jdKeywords) {
-    if (resumeTokens.has(keyword)) {
+    if (resumeTokens.has(keyword.toLowerCase())) {
       matchCount++;
     }
   }
 
-  // Add bonus for exact phrase matching if JD has multi-word keywords
-  // (e.g. "React JS")
+  // Add bonus for exact phrase matching (for multi-word words)
   const resumeLower = resumeText.toLowerCase();
   for (const keyword of jdKeywords) {
-    if (keyword.includes(' ') && resumeLower.includes(keyword)) {
-      matchCount += 0.5; // slight bonus for phrase match
+    if (keyword.includes(' ') && resumeLower.includes(keyword.toLowerCase())) {
+      matchCount += 0.5;
     }
   }
 
   return Math.min(100, Math.round((matchCount / jdKeywords.length) * 100));
 };
-
 
 module.exports = {
   calculateTF,

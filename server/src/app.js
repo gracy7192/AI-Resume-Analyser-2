@@ -60,6 +60,12 @@ app.use('/api/', generalLimiter);
 // Serve uploaded files as static assets (for downloading resumes)
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
+// Make socket.io accessible in routes via req.io
+app.use((req, res, next) => {
+  req.io = req.app.get('io');
+  next();
+});
+
 // ──────────────────────────────────────────
 // API ROUTES
 // ──────────────────────────────────────────

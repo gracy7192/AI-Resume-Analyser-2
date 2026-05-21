@@ -21,8 +21,13 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 // Create a new Sequelize instance (our connection to MySQL)
+// If running tests, use a dedicated test database to protect development data from being wiped
+const dbName = process.env.NODE_ENV === 'test'
+  ? 'ats_resume_test'
+  : (process.env.DB_NAME || 'ats_resume');
+
 const sequelize = new Sequelize(
-  process.env.DB_NAME || 'ats_resume',      // database name
+  dbName,                                    // database name
   process.env.DB_USER || 'root',             // username
   process.env.DB_PASSWORD || '',             // password
   {

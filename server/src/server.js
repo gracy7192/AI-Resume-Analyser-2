@@ -36,11 +36,8 @@ const io = new Server(server, {
 // Initialize Socket.IO event handlers
 initializeSocket(io);
 
-// Make io accessible in routes (so controllers can emit events)
-app.use((req, res, next) => {
-  req.io = io;
-  next();
-});
+// Share the socket.io instance with the Express app
+app.set('io', io);
 
 // ──────────────────────────────────────────
 // START THE SERVER

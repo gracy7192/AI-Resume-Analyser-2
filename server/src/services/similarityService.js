@@ -23,6 +23,7 @@
 
 const { tokenize } = require('../utils/textCleaner');
 const { calculateTF, calculateIDF } = require('./keywordService');
+const { extractSkills, compareSkills } = require('../utils/skillExtractor');
 
 /**
  * Build a TF-IDF vector for a document.
@@ -71,11 +72,35 @@ const magnitude = (vec) => {
 
 /**
  * Calculate cosine similarity between two texts.
+ * Uses intelligent skills-vector similarity when skills are present in the JD.
+ * Falls back to unigram raw token TF-IDF with non-linear scaling when no skills are matched.
+ *
  * @param {string} textA - First document (e.g. resume)
  * @param {string} textB - Second document (e.g. job description)
  * @returns {number} Similarity score between 0 and 1
  */
 const cosineSimilarity = (textA, textB) => {
+  const skillsA = extractSkills(textA);
+  const skillsB = extractSkills(textB);
+
+  // If the Job Description contains explicit skills, do high-quality skills-vector similarity
+  if (skillsB.length > 0) {
+    const { matched } = compareSkills(skillsA, skillsB);
+    const matchRatio = matched.length / skillsB.length;
+
+    // Binary skills-space cosine similarity
+    // JD Vector is all 1s (representing all required skills). Magnitude is sqrt(N).
+    // Resume Vector has 1s for matches, 0s otherwise. Magnitude is sqrt(M).
+    // Dot product is M (number of matched skills).
+    // Cosine = M / (sqrt(N) * sqrt(M)) = sqrt(M / N) = sqrt(matchRatio)
+    const skillCosine = Math.sqrt(matchRatio);
+
+    // Combine skill-cosine and raw skill match ratio
+    const skillScore = (0.7 * skillCosine) + (0.3 * matchRatio);
+    return Math.min(1.0, Math.max(0, skillScore));
+  }
+
+  // Fallback: standard unigram raw-token TF similarity
   const tokensA = tokenize(textA);
   const tokensB = tokenize(textB);
 
@@ -84,8 +109,6 @@ const cosineSimilarity = (textA, textB) => {
   // Calculate shared vocabulary
   const vocabulary = [...new Set([...tokensA, ...tokensB])];
   
-  // For small corpora (2 docs), TF-IDF is often 0.
-  // We use simple TF (frequency) instead for more robust matching
   const tfA = calculateTF(tokensA);
   const tfB = calculateTF(tokensB);
   
@@ -98,17 +121,23 @@ const cosineSimilarity = (textA, textB) => {
 
   if (magA === 0 || magB === 0) return 0;
 
-  // Jaccard similarity fallback if cosine is too low
+  // Raw unigram cosine similarity
+  const rawCosine = dot / (magA * magB);
+
+  // Jaccard similarity
   const setA = new Set(tokensA);
   const setB = new Set(tokensB);
   const intersection = new Set([...setA].filter(x => setB.has(x)));
   const union = new Set([...setA, ...setB]);
   const jaccard = intersection.size / union.size;
 
-  // Combine cosine and jaccard for a more "human" similarity score
-  const score = (0.7 * (dot / (magA * magB))) + (0.3 * jaccard);
+  // Combined raw similarity
+  const rawSimilarity = (0.7 * rawCosine) + (0.3 * jaccard);
   
-  return Math.min(1.0, score);
+  // Non-linear scaling curve (y = x^0.45 * 1.5) to lift small document overlaps (e.g. 0.08 -> 0.48)
+  const scaledSimilarity = Math.min(1.0, Math.pow(rawSimilarity, 0.45) * 1.5);
+
+  return Math.min(1.0, Math.max(0, scaledSimilarity));
 };
 
 
