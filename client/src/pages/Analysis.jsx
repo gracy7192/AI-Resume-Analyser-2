@@ -62,7 +62,12 @@ const Analysis = () => {
     setProgressPercent(5);
 
     const token = localStorage.getItem('token');
-    const socket = io('http://localhost:5000', { auth: { token } });
+    const socketUrl = import.meta.env.VITE_API_URL
+  ? import.meta.env.VITE_API_URL.replace('/api', '')
+  : 'http://localhost:5000';
+
+const socket = io(socketUrl, { auth: { token } });
+    const socket = io(socketUrl, { auth: { token } });
 
     socket.on('analysis:started', (data) => {
       setProgressMsg(data.message);
