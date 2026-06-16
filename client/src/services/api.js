@@ -8,7 +8,7 @@ import axios from 'axios';
  * - We can add interceptors to automatically attach JWT tokens to every request.
  */
 const api = axios.create({
-  baseURL: '/api', // Proxied to http://localhost:5000 in Vite config
+  baseURL: import.meta.env.VITE_API_URL || '/api',
   headers: {
     'Content-Type': 'application/json',
   },
