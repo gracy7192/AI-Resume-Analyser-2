@@ -67,7 +67,6 @@ const Analysis = () => {
   : 'http://localhost:5000';
 
 const socket = io(socketUrl, { auth: { token } });
-    const socket = io(socketUrl, { auth: { token } });
 
     socket.on('analysis:started', (data) => {
       setProgressMsg(data.message);
