@@ -27,23 +27,34 @@ const dbName = process.env.NODE_ENV === 'test'
   : (process.env.DB_NAME || 'ats_resume');
 
 const sequelize = new Sequelize(
-  dbName,                                    // database name
-  process.env.DB_USER || 'root',             // username
-  process.env.DB_PASSWORD || '',             // password
+  dbName,
+  process.env.DB_USER || 'root',
+  process.env.DB_PASSWORD || '',
   {
-    host: process.env.DB_HOST || 'localhost', // where MySQL is running
-    port: process.env.DB_PORT || 3306,        // MySQL default port
-    dialect: 'mysql',                         // we are using MySQL
-    logging: false,                           // set to console.log to see SQL queries
-    pool: {
-      max: 10,    // max number of connections in pool
-      min: 0,     // min number of connections in pool
-      acquire: 30000, // max time (ms) to get a connection before throwing error
-      idle: 10000     // max time (ms) a connection can be idle before being released
+    host: process.env.DB_HOST || 'localhost',
+    port: process.env.DB_PORT || 3306,
+    dialect: 'mysql',
+
+    // Required for TiDB Cloud
+    dialectOptions: {
+      ssl: {
+        require: true,
+        rejectUnauthorized: false,
+      },
     },
+
+    logging: false,
+
+    pool: {
+      max: 10,
+      min: 0,
+      acquire: 30000,
+      idle: 10000,
+    },
+
     define: {
-      timestamps: true,  // automatically add createdAt and updatedAt columns
-      underscored: true, // use snake_case instead of camelCase for column names
+      timestamps: true,
+      underscored: true,
     },
   }
 );
@@ -58,7 +69,7 @@ const testConnection = async () => {
     console.log('✅ Database connection established successfully.');
   } catch (error) {
     console.error('❌ Unable to connect to the database:', error.message);
-    process.exit(1); // stop the server if we can't reach the DB
+    process.exit(1);
   }
 };
 
